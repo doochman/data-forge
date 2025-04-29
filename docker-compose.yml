@@ -1,0 +1,164 @@
+name: ingestion-bridge
+services:
+  # Conditionally deploy Mage service
+  mage:
+    build: ./mage
+    ports:
+      - "6789:6789"
+    volumes:
+      - ./mage:/home/src
+    networks:
+      - backend
+    restart: unless-stopped
+    deploy: 
+      mode: ${ENABLE_MAGE:-false}
+
+  # Conditionally deploy Flink service
+  flink-jobmanager:
+    build: ./flink
+    command: jobmanager
+    ports:
+      - "8081:8081"
+    networks:
+      - backend
+    restart: unless-stopped
+    deploy: 
+      mode: ${ENABLE_FLINK:-false}
+
+  flink-taskmanager:
+    build: ./flink
+    command: taskmanager
+    depends_on:
+      - flink-jobmanager
+    networks:
+      - backend
+    restart: unless-stopped
+    deploy:
+      mode: ${ENABLE_FLINK:-false}
+
+  # Kafka and Zookeeper services
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    networks:
+      - backend
+    restart: unless-stopped
+    deploy: 
+      mode: ${ENABLE_KAFKA:-false}
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - backend
+    restart: unless-stopped
+    deploy: 
+      mode: ${ENABLE_ZOOKEEPER:-false}
+
+  # Jenkins
+  jenkins:
+    build: ./jenkins
+    ports:
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - backend
+    restart: unless-stopped
+    deploy: 
+      mode: ${ENABLE_JENKINS:-false}
+
+  # Airflow Webserver
+  airflow:
+    build: ./airflow
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+      flink-jobmanager:
+        condition: service_started
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
+    ports:
+      - "8089:8080"
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./airflow/plugins:/opt/airflow/plugins
+      - ./pipelines:/opt/airflow/pipelines  # Mount the pipeline config and producer code
+      - ./airflow/data:/opt/airflow/data    # Optional: to persist generated data
+    command: webserver
+    networks:
+      - backend
+    restart: always
+
+  airflow_scheduler:
+    build: ./airflow
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./airflow/plugins:/opt/airflow/plugins
+    command: scheduler
+    networks:
+      - backend
+    restart: always
+
+  # Postgres service for Airflow
+  postgres:
+    image: postgres:13
+    container_name: postgres
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 10s
+      retries: 5
+    restart: unless-stopped
+    deploy: 
+      mode: ${ENABLE_POSTGRES:-true}  # Ensure you can control this service too
+
+  # Static Website and API
+  dashboard:
+    build: ./launchpad
+    ports:
+      - "5000:5000"
+    networks:
+      - backend
+    restart: unless-stopped
+    volumes:
+      - ./launchpad:/app
+
+networks:
+  backend:
+    driver: bridge
+
+# Named volumes for persistent data
+volumes:
+  postgres_data:

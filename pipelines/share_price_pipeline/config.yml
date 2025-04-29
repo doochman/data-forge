@@ -1,0 +1,11 @@
+pipeline_name: share_price_ingestion
+source:
+  type: random_numbers
+  interval: 5   # seconds (generate data every 5 seconds)
+kafka:
+  topic: share_prices
+flink:
+  job: flink_job.py  # Optional, if you want to process the data later
+sink:
+  type: local_file_system
+  location: /opt/airflow/data/share_prices.csv  # Saving locally inside the Airflow container

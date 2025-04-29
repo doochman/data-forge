@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Ingestion Bridge</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header>
+    <h1>🚀 Ingestion Bridge</h1>
+    <p>Monitor & orchestrate your entire data stack in one place.</p>
+  </header>
+
+  <main class="dashboard" id="dashboard">
+    <!-- Tiles populated by JS -->
+  </main>
+
+  <footer>
+    <p>&copy; 2025 Ingestion Stack | All systems connected.</p>
+  </footer>
+
+  <script>
+    async function fetchServices() {
+      const res = await fetch('/api/status/all');
+      const data = await res.json();
+      const dashboard = document.getElementById('dashboard');
+      dashboard.innerHTML = '';
+
+      Object.entries(data).forEach(([key, svc]) => {
+        const tile = document.createElement('div');
+        tile.className = 'tile';
+
+        tile.innerHTML = `
+          <div class="tile-header">
+            <img src="icons/${key}.png" alt="${svc.name}" class="icon"/>
+            <h2>${svc.name}</h2>
+          </div>
+          <p class="desc">${svc.capability}</p>
+          <div class="tile-actions">
+            <a href="${svc.dashboard_url}" target="_blank" class="btn">🔗 Dashboard</a>
+            <a href="#" class="btn btn-secondary">📜 Logs</a>
+          </div>
+          <span class="status ${svc.status}">${svc.status.toUpperCase()}</span>
+        `;
+        dashboard.appendChild(tile);
+      });
+    }
+
+    fetchServices();
+    setInterval(fetchServices, 5000);
+  </script>
+</body>
+</html>
